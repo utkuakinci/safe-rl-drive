@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import importlib.util
 import json
 import os
 import platform
@@ -130,13 +131,17 @@ def train(
 
     algo_cls = ALGOS[cfg["algo"]]
     policy = "MlpLstmPolicy" if cfg["algo"] == "rppo" else "MlpPolicy"
+    # TensorBoard comes with the optional "tracking" extra; without it, train without curves.
+    tb_log = str(out_dir / "tb") if importlib.util.find_spec("tensorboard") else None
+    if tb_log is None:
+        print("tensorboard not installed: training without TensorBoard logs (pip install '.[tracking]')")
     model = algo_cls(
         policy,
         venv,
         seed=seed,
         verbose=int(cfg.get("verbose", 1)),
         device=cfg.get("device", "cpu"),
-        tensorboard_log=str(out_dir / "tb"),
+        tensorboard_log=tb_log,
         policy_kwargs=cfg.get("policy_kwargs", {}),
         **cfg.get("hyperparams", {}),
     )
