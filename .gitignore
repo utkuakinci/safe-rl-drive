@@ -1,0 +1,45 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# experiment outputs
+runs/
+wandb/
+results/*
+!results/.gitkeep
+# evaluated numbers behind the README tables are versioned
+!results/highway/
+!results/merge/
+!results/intersection/
+!results/active_inference/
+!results/benchmark_rppo_highway/
+!results/ros2_closed_loop.json
+!results/metadrive/
+!results/index.html
+!results/explained.html
+!results/figures/
+results/metadrive/**/*.mp4
+models/*
+!models/.gitkeep
+data/*
+!data/.gitkeep
+*.engine
+*.onnx
+*.mp4
+*.gif
+!docs/media/*.gif
+
+# ROS2 / colcon
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+.vscode/
+.idea/
+runs_smoke/
+
+# Turkish explanation for the project owner (local only)
+PROJE_ANLATIMI_TR.md

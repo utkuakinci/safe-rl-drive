@@ -1,0 +1,11 @@
+program: src/safe_rl_drive/training/train.py
+command: ["${env}", "python", "-m", "safe_rl_drive.training.train", "--config", "configs/train/highway_rppo.yaml", "--sweep", "--seed", "0", "--set", "total_timesteps=150000"]
+method: bayes
+metric: {name: eval/success, goal: maximize}
+early_terminate: {type: hyperband, min_iter: 3}
+parameters:
+  learning_rate: {distribution: log_uniform_values, min: 1.0e-4, max: 1.0e-3}
+  gamma: {values: [0.8, 0.85, 0.9, 0.95]}
+  n_steps: {values: [64, 128, 256]}
+  lstm_hidden_size: {values: [64, 128, 256]}
+  ent_coef: {distribution: log_uniform_values, min: 1.0e-4, max: 5.0e-2}

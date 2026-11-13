@@ -1,0 +1,18 @@
+{
+  "budgets": [
+    2000,
+    10000,
+    50000
+  ],
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "algos": [
+    "ppo",
+    "rppo"
+  ],
+  "episodes": 300,
+  "out": "results\\active_inference"
+}

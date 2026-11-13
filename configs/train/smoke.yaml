@@ -1,0 +1,14 @@
+# CI smoke test: a couple of PPO updates on 2 envs, no subprocesses. Not meant to learn anything.
+extends: highway_ppo.yaml
+name: smoke
+seeds: [0]
+total_timesteps: 512
+n_envs: 2
+subproc: false
+eval_freq: 512
+eval_episodes: 1
+shield_eval: null
+hyperparams:
+  n_steps: 128
+  batch_size: 64
+  n_epochs: 1

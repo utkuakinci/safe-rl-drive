@@ -1,0 +1,4 @@
+extends: highway_rppo.yaml
+name: rppo_pomdp
+env:
+  mask_features: [vx, vy]

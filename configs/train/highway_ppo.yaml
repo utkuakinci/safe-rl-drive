@@ -1,0 +1,15 @@
+extends: _base.yaml
+name: ppo
+algo: ppo
+scenario: highway
+policy_kwargs:
+  net_arch: {pi: [256, 256], vf: [256, 256]}
+hyperparams:
+  learning_rate: 5.0e-4
+  n_steps: 256           # per env -> 2048 samples per update with 8 envs
+  batch_size: 64
+  n_epochs: 10
+  gamma: 0.85            # short-horizon driving reward; 0.8-0.9 is standard for highway-env
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.01

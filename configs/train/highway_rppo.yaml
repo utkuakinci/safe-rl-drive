@@ -1,0 +1,12 @@
+extends: highway_ppo.yaml
+name: rppo
+algo: rppo
+policy_kwargs:
+  net_arch: {pi: [128], vf: [128]}
+  lstm_hidden_size: 128
+  n_lstm_layers: 1
+  shared_lstm: false
+  enable_critic_lstm: true
+hyperparams:
+  n_steps: 128           # RecurrentPPO trains on full sequences; shorter rollouts keep updates frequent
+  batch_size: 128

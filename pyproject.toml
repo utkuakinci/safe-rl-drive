@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "safe-rl-drive"
+version = "0.1.0"
+description = "Safe & explainable RL driving agent: training (PPO / RecurrentPPO) -> evaluation -> safety shield -> ONNX/TensorRT -> C++ ROS2 deployment."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "gymnasium>=1.0",
+  "highway-env>=1.10",
+  "stable-baselines3>=2.4",
+  "sb3-contrib>=2.4",
+  "torch>=2.2",
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "scipy>=1.10",
+  "pyyaml>=6.0",
+  "psutil>=5.9",
+  "matplotlib>=3.7",
+  "imageio[ffmpeg]>=2.31",
+]
+
+[project.optional-dependencies]
+tracking = ["wandb>=0.17", "tensorboard>=2.14"]
+deploy = ["onnx>=1.16", "onnxruntime>=1.18", "onnxscript>=0.1"]
+# TensorRT is installed from NVIDIA wheels / containers, see docker/trt.Dockerfile
+gpu = ["onnxruntime-gpu>=1.18", "tensorrt>=10.0,<11"]  # TRT 11 dropped the INT8 calibrator API
+active-inference = ["inferactively-pymdp==0.0.7.1", "tabulate>=0.9"]
+carla = ["carla==0.9.15"]
+dev = ["pytest>=8", "pytest-timeout", "ruff>=0.6"]
+
+[project.scripts]
+srd-train = "safe_rl_drive.training.train:main"
+srd-eval = "safe_rl_drive.evaluation.evaluate:main"
+srd-export = "safe_rl_drive.deploy.export_onnx:main"
+srd-bench = "safe_rl_drive.deploy.benchmark:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+extend-exclude = ["ros2_ws/build", "ros2_ws/install"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY", "SIM"]
+ignore = ["E501", "B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: trains a model or runs many env steps"]
+addopts = "-q"

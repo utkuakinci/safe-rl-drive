@@ -1,0 +1,21 @@
+# Shared defaults. Scenario/algo files override what they need via `extends: _base.yaml`.
+seeds: [0, 1, 2, 3, 4]
+total_timesteps: 200000
+n_envs: 8
+device: cpu            # small MLP/LSTM policies train faster on CPU than with GPU transfer overhead
+eval_freq: 25000
+eval_episodes: 10
+checkpoint_freq: 100000
+env:
+  overrides: {}
+  obs_noise_std: 0.0
+  obs_dropout: 0.0
+  mask_features: []
+# Evaluate with the shield in the loop during training too (logged as eval_shielded/*).
+shield_eval: {}
+# Set to a shield config dict (e.g. {}) to train *with* the shield filtering actions.
+shield_in_training: null
+wandb:
+  project: safe-rl-drive
+  entity: null
+  tags: []

@@ -1,0 +1,2 @@
+extends: highway_ppo.yaml
+scenario: merge

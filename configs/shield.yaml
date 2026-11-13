@@ -1,0 +1,14 @@
+# Rule-based safety shield (see src/safe_rl_drive/safety/shield.py and the C++ port).
+enabled: true
+ttc_threshold: 2.5      # s  leader time-to-collision -> block FASTER / IDLE
+standstill_gap: 4.0     # m  bumper-to-bumper minimum gap
+time_headway: 0.6       # s  dynamic gap = standstill_gap + time_headway * v_ego
+vehicle_length: 5.0     # m
+lane_width: 4.0         # m
+lc_front_gap: 5.0       # m  free space required in the target lane (ahead)
+lc_rear_gap: 5.0        # m  free space required in the target lane (behind)
+lc_ttc: 2.0             # s  TTC to target-lane leader / follower
+cpa_radius: 3.0         # m  crossing traffic closest-point-of-approach radius
+cpa_horizon: 2.5        # s
+aeb_ttc: 1.5            # s  emergency brake below this TTC
+fallback_order: [IDLE, SLOWER, LANE_RIGHT, LANE_LEFT, FASTER]

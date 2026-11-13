@@ -1,0 +1,5 @@
+# Partially observable variant: velocities are hidden, closing speeds must be inferred from history.
+extends: highway_ppo.yaml
+name: ppo_pomdp
+env:
+  mask_features: [vx, vy]

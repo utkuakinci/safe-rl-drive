@@ -1,0 +1,23 @@
+{
+  "onnx": "models/ppo_highway.onnx",
+  "episodes": 20,
+  "density": 0.3,
+  "traffic_kmh": 80.0,
+  "traffic_mode": "trigger",
+  "shield_off": {
+    "success": 0.25,
+    "collision": 0.75,
+    "collision_after_traffic_pileup": 0.25,
+    "offroad": 0.0,
+    "mean_speed": 19.625066048946074,
+    "shield_rate": 0.0
+  },
+  "shield_on": {
+    "success": 0.6,
+    "collision": 0.4,
+    "collision_after_traffic_pileup": 0.35,
+    "offroad": 0.0,
+    "mean_speed": 15.761384370892756,
+    "shield_rate": 0.1423377226089021
+  }
+}

@@ -1,0 +1,18 @@
+rl_policy_node:
+  ros__parameters:
+    model_path: /models/policy.onnx
+    backend: onnxruntime        # onnxruntime | onnxruntime_cuda | tensorrt (path to .engine)
+    stats_window: 500
+    shield:
+      enabled: true
+      ttc_threshold: 2.5
+      standstill_gap: 4.0
+      time_headway: 0.6
+      vehicle_length: 5.0
+      lane_width: 4.0
+      lc_front_gap: 5.0
+      lc_rear_gap: 5.0
+      lc_ttc: 2.0
+      cpa_radius: 3.0
+      cpa_horizon: 2.5
+      aeb_ttc: 1.5
