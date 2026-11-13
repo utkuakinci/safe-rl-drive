@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WANDB_MODE: disabled
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install "ruff>=0.6"
+      - run: ruff check .
+      - run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - name: Install (CPU torch)
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[deploy,active-inference,dev]"
+      - name: Unit tests (fast)
+        run: pytest -m "not slow" --timeout 600
+      - name: Slow tests (shield closed-loop, smoke training)
+        run: pytest -m slow --timeout 900
+
+  smoke-pipeline:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - name: Install
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[deploy,dev]"
+      - name: Smoke training (PPO + RecurrentPPO)
+        run: |
+          python -m safe_rl_drive.training.train --config configs/train/smoke.yaml --out runs_smoke --wandb-mode disabled
+          python -m safe_rl_drive.training.train --config configs/train/smoke_rppo.yaml --out runs_smoke --wandb-mode disabled
+      - name: Evaluation (shield on/off)
+        run: python -m safe_rl_drive.evaluation.evaluate --runs runs_smoke --episodes 2 --workers 2 --out results/smoke
+      - name: ONNX export + parity check
+        run: |
+          python -m safe_rl_drive.deploy.export_onnx --model runs_smoke/highway/smoke/seed_0 --out models/smoke_ppo.onnx
+          python -m safe_rl_drive.deploy.export_onnx --model runs_smoke/highway/smoke_rppo/seed_0 --out models/smoke_rppo.onnx
+      - name: Benchmark (CPU backends)
+        run: |
+          python -m safe_rl_drive.deploy.collect_obs --model runs_smoke/highway/smoke_rppo/seed_0 --episodes 2 --out data/smoke.npz
+          python -m safe_rl_drive.deploy.benchmark --model runs_smoke/highway/smoke_rppo/seed_0 --onnx models/smoke_rppo.onnx \
+            --data data/smoke.npz --iters 500 --warmup 50 --out results/smoke_bench
+          cat results/smoke_bench/benchmark.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smoke-models
+          path: |
+            models/
+            results/
+
+  ros2:
+    needs: smoke-pipeline
+    runs-on: ubuntu-latest
+    container: ros:humble
+    env:
+      ORT_VERSION: "1.20.1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: {name: smoke-models}
+      - name: Install ONNX Runtime C++ + python deps
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends wget python3-pip libgl1
+          wget -q https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz
+          tar xzf onnxruntime-linux-x64-${ORT_VERSION}.tgz -C /opt && mv /opt/onnxruntime-linux-x64-${ORT_VERSION} /opt/onnxruntime
+          # same pins as docker/ros2.Dockerfile (Ubuntu 22.04's pip 22 cannot install this pyproject)
+          PIN="numpy<2 setuptools<80 packaging>=24.2"
+          python3 -m pip install --upgrade "pip>=24"
+          python3 -m pip install $PIN torch --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+          python3 -m pip install ".[deploy]" $PIN
+      - name: colcon build + gtest (shield conformance with Python reference vectors)
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          cd ros2_ws
+          colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release -DONNXRUNTIME_ROOT=/opt/onnxruntime
+          export LD_LIBRARY_PATH=/opt/onnxruntime/lib:$LD_LIBRARY_PATH
+          colcon test --packages-select rl_policy_node --event-handlers console_direct+
+          colcon test-result --verbose
+      - name: C++ inference micro-benchmark
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash && source ros2_ws/install/setup.bash
+          export LD_LIBRARY_PATH=/opt/onnxruntime/lib:$LD_LIBRARY_PATH
+          ros2 run rl_policy_node bench_inference models/smoke_ppo.onnx onnxruntime 5000
+          ros2 run rl_policy_node bench_inference models/smoke_rppo.onnx onnxruntime 5000
+      - name: Closed-loop ROS2 run (bridge <-> C++ node, 2 episodes)
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash && source ros2_ws/install/setup.bash
+          export LD_LIBRARY_PATH=/opt/onnxruntime/lib:$LD_LIBRARY_PATH
+          timeout 600 ros2 launch rl_policy_node drive.launch.py model_path:=$PWD/models/smoke_rppo.onnx episodes:=2
+          cat results/ros2_closed_loop.json
