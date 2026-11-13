@@ -1,0 +1,15 @@
+{
+  "onnx": "models/rppo_highway.onnx",
+  "episodes": 5,
+  "density": 0.3,
+  "traffic_kmh": 80.0,
+  "traffic_mode": "trigger",
+  "shield_on": {
+    "success": 0.6,
+    "collision": 0.4,
+    "collision_after_traffic_pileup": 0.0,
+    "offroad": 0.0,
+    "mean_speed": 18.003822925068746,
+    "shield_rate": 0.3242857142857143
+  }
+}
