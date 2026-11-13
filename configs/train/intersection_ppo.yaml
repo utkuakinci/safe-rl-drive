@@ -1,0 +1,5 @@
+extends: highway_ppo.yaml
+scenario: intersection
+total_timesteps: 400000
+hyperparams:
+  gamma: 0.95            # longer horizon: reaching the exit is a delayed reward

@@ -1,0 +1,5 @@
+extends: highway_rppo.yaml
+scenario: intersection
+total_timesteps: 400000
+hyperparams:
+  gamma: 0.95

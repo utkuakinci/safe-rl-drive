@@ -1,0 +1,6 @@
+extends: smoke.yaml
+name: smoke_rppo
+algo: rppo
+policy_kwargs:
+  net_arch: {pi: [64], vf: [64]}
+  lstm_hidden_size: 32
