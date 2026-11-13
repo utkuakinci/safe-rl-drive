@@ -1,0 +1,36 @@
+# docker compose build && docker compose run --rm train
+services:
+  train:
+    build: {context: ., dockerfile: docker/train.Dockerfile}
+    image: safe-rl-drive/train
+    volumes: ["./runs:/app/runs", "./results:/app/results", "./wandb:/app/wandb"]
+    environment: [WANDB_API_KEY, WANDB_MODE]
+    command: ["safe_rl_drive.training.train", "--config", "configs/train/highway_rppo.yaml", "--all-seeds"]
+
+  evaluate:
+    image: safe-rl-drive/train
+    volumes: ["./runs:/app/runs", "./results:/app/results"]
+    command: ["safe_rl_drive.evaluation.evaluate", "--runs", "runs/highway", "--suite", "robustness", "--shield", "both", "--out", "results/highway"]
+
+  trt:
+    build: {context: ., dockerfile: docker/trt.Dockerfile}
+    image: safe-rl-drive/trt
+    volumes: [".:/work"]
+    working_dir: /work
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+    command: ["bash", "scripts/deploy_pipeline.sh", "runs/highway/rppo/seed_0", "highway"]
+
+  ros2:
+    build: {context: ., dockerfile: docker/ros2.Dockerfile}
+    image: safe-rl-drive/ros2
+    volumes: ["./models:/models", "./results:/app/results"]
+    command: ["ros2", "launch", "rl_policy_node", "drive.launch.py", "model_path:=/models/rppo_highway.onnx", "episodes:=20"]
+
+  metadrive:
+    build: {context: ., dockerfile: docker/metadrive.Dockerfile}
+    image: safe-rl-drive/metadrive
+    volumes: ["./models:/app/models", "./results:/app/results"]
+    command: ["python", "sim2sim_demo/metadrive_demo.py", "--onnx", "models/rppo_highway.onnx", "--episodes", "20", "--out", "results/metadrive/rppo"]
