@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Safe RL Driving Explained</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Same light reading column as index.html. */
+:root {
+  color-scheme: light;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-soft: #52514e;
+  --ink-muted: #706e69;
+  --rule: #e1e0d9;
+  --tint: #f1f5fb;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { background: var(--surface); }
+body { margin: 0; background: var(--surface); color: var(--ink); font-family: var(--sans); font-size: 17px; line-height: 1.6; }
+main { max-width: 860px; margin: 0 auto; padding: 48px 20px 72px; display: grid; gap: 40px; }
+header, section { display: grid; gap: 14px; }
+h1, h2 { margin: 0; text-wrap: balance; line-height: 1.2; font-weight: 600; }
+h1 { font-size: 34px; letter-spacing: -0.01em; }
+h2 { font-size: 22px; padding-top: 22px; border-top: 1px solid var(--rule); }
+h3 { margin: 0; font-size: 17px; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+.lead { font-size: 19px; color: var(--ink-soft); }
+.plain { padding: 12px 16px; background: var(--tint); border-radius: 4px; max-width: none; }
+.plain a, a { color: #1c5cab; font-weight: 500; }
+figure { margin: 0; display: grid; gap: 8px; }
+img { display: block; max-width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 4px; }
+figcaption { font-size: 14.5px; color: var(--ink-muted); max-width: 72ch; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+caption { text-align: left; color: var(--ink-muted); font-size: 14.5px; padding-bottom: 8px; }
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 500; color: var(--ink-soft); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+ol, ul { margin: 0; padding-left: 22px; display: grid; gap: 8px; max-width: 72ch; }
+code { font-family: var(--mono); font-size: 0.9em; }
+dl { margin: 0; display: grid; gap: 10px; max-width: 72ch; }
+dt { font-weight: 600; }
+dd { margin: 0 0 0 0; color: var(--ink-soft); }
+@media (max-width: 480px) {
+  main { padding-top: 32px; gap: 32px; }
+  h1 { font-size: 28px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>The project in plain English</h1>
+    <p class="lead">A program learns to drive in a simulator by trial and error. A second program, a short list of hand-written safety rules, checks every one of its decisions. Then the learned driver is packaged so it could run inside real vehicle software.</p>
+    <p class="plain">This page assumes no background. The technical report, with every table and chart, is <a href="index.html">here</a>. Terms in bold are explained at the end.</p>
+  </header>
+
+  <section>
+    <h2>In short</h2>
+    <ul>
+      <li>On a simulated highway, the learned driver crashed in 45% to 87% of drives on its own. With the safety rules checking it, it crashed in <strong>none</strong>, at a cost of driving about 2 m/s slower.</li>
+      <li>The safety rules also held up when the driver's sensors were noisy, when cars went unseen, when its commands arrived late, and when traffic doubled.</li>
+      <li>At an unsignalised intersection, every trained driver learned a bad habit: drive straight through at top speed. The safety rules could not fix that. The project reports it as a failure.</li>
+      <li>One driving decision takes 33 millionths of a second on an ordinary laptop processor, thousands of times faster than the two decisions per second it needs.</li>
+      <li>Moved to a different simulator without any retraining, the learned driver crashed in most drives. The same safety rules cut that by more than half.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>The problem: driving in traffic</h2>
+    <p>The simulator, <strong>highway-env</strong>, shows roads from above. It has three practice situations:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Situation</th><th scope="col">What happens</th><th scope="col">A drive counts as a success if</th></tr></thead>
+        <tbody>
+          <tr><td>Highway</td><td>Several lanes, slower cars to overtake</td><td>40 seconds pass without a crash</td></tr>
+          <tr><td>Merge</td><td>Cars join from a side road</td><td>The car passes the merge without a crash</td></tr>
+          <tr><td>Intersection</td><td>No traffic lights, cars crossing from the side</td><td>The car crosses in time without a crash</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Two more situations, a roundabout and a very crowded highway, were never used for practice. They are only for testing.</p>
+    <p><strong>What the driver sees:</strong> a small table of numbers. For itself and the 7 nearest cars it gets position, speed and direction. There is no camera image.</p>
+    <p><strong>What the driver can do:</strong> five commands, twice per second. Change to the left lane, keep going, change to the right lane, speed up, slow down. The simulator turns each command into steering and throttle.</p>
+  </section>
+
+  <section>
+    <h2>The parts of the system</h2>
+    <ol>
+      <li><strong>The learned driver.</strong> It practises thousands of drives. It earns points for driving fast and staying in the right lane, and it loses points for crashing. This is <strong>reinforcement learning</strong>. Two versions were trained: <strong>PPO</strong>, which looks only at the present moment, and <strong>RecurrentPPO</strong>, which also has a short memory.</li>
+      <li><strong>The safety shield.</strong> About 150 lines of fixed rules, with no learning in them. Before a command is carried out, the shield checks it against distances and speeds. If the command is dangerous, the shield swaps in a safe one and writes down which rule fired.</li>
+      <li><strong>The explanation.</strong> For each decision, a method called <strong>integrated gradients</strong> measures which of the numbers the driver saw pushed it most towards that decision. The result becomes one readable line, such as "speed up, mostly because of the car 22 m ahead in the left lane".</li>
+      <li><strong>The packaging.</strong> The driver is converted to <strong>ONNX</strong>, a standard file that any language can run. It is then sped up with <strong>TensorRT</strong> on a graphics card and run inside a <strong>ROS2</strong> program written in C++, the kind of software used in robots and vehicles.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>One decision, step by step</h2>
+    <ol>
+      <li>The simulator writes the positions and speeds of the nearest cars into the table.</li>
+      <li>The learned driver gives each of the five commands a probability, for example "speed up: 92%".</li>
+      <li>The shield reads its own, separate copy of the distances and speeds. Suppose a car ahead is close and slower: at this speed the two would touch in under 2.5 seconds. The shield blocks "speed up" and picks the safest command the driver also liked, here "slow down".</li>
+      <li>If a crash is less than 1.5 seconds away, the shield also brakes hard, beyond what the five commands allow.</li>
+      <li>The command is carried out. What the driver wanted, what was actually done, and which rule fired are all recorded.</li>
+    </ol>
+    <figure>
+      <img src="../docs/media/explain_highway.gif" width="1080" height="486" alt="Animated highway scene with the driver's command probabilities and an importance map next to it.">
+      <figcaption>A real drive. Left: the road, our car in green. Right, top: how much the driver wanted each command, with the command actually carried out in blue. Right, bottom: which numbers mattered most for that decision.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>The safety rules</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Rule</th><th scope="col">Fires when</th><th scope="col">It forbids</th></tr></thead>
+        <tbody>
+          <tr><td>Time to collision</td><td>Our car would reach the car ahead in under 2.5 s at the current speeds</td><td>Speeding up and keeping speed</td></tr>
+          <tr><td>Following distance</td><td>The gap is shorter than 4 m plus 0.6 s of travel</td><td>Speeding up</td></tr>
+          <tr><td>Crossing traffic</td><td>A car from the side would come within 3 m in the next 2.5 s</td><td>Speeding up and keeping speed</td></tr>
+          <tr><td>Lane change</td><td>The target lane is occupied, or a car there is closing in fast</td><td>That lane change</td></tr>
+          <tr><td>Emergency brake</td><td>A crash is less than 1.5 s away</td><td>Nothing. It brakes hard.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Slowing down is never forbidden, so a safe choice always exists. The same rules were rewritten in C++ for the vehicle program and checked against the original on 2400 situations. They agreed on every one.</p>
+  </section>
+
+  <section>
+    <h2>What came out</h2>
+    <h3>On the practice roads</h3>
+    <div class="table-wrap">
+      <table>
+        <caption>Share of drives that ended in a crash. Each number is 3 separately trained drivers × 20 drives.</caption>
+        <thead><tr><th scope="col">Situation, driver</th><th scope="col" class="num">Rules off</th><th scope="col" class="num">Rules on</th></tr></thead>
+        <tbody>
+          <tr><td>Highway, PPO</td><td class="num">45%</td><td class="num">0%</td></tr>
+          <tr><td>Highway, RecurrentPPO</td><td class="num">87%</td><td class="num">0%</td></tr>
+          <tr><td>Merge, PPO</td><td class="num">0%</td><td class="num">0%</td></tr>
+          <tr><td>Merge, RecurrentPPO</td><td class="num">13%</td><td class="num">0%</td></tr>
+          <tr><td>Intersection, PPO</td><td class="num">25%</td><td class="num">23%</td></tr>
+          <tr><td>Intersection, RecurrentPPO</td><td class="num">25%</td><td class="num">28%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>RecurrentPPO, the version with memory, drove faster and crashed more. Memory makes a driver slower to learn, and its practice time here was short.</p>
+    <p>At the intersection, all six trained drivers learned to drive straight through at top speed. The rules make the car slow down, but then it runs out of time before crossing, and some side impacts still happen. This is reported as a failure, with ideas for fixing it.</p>
+
+    <h3>When things go wrong</h3>
+    <p>The drivers were also tested with blurry sensor readings, 20% of cars made invisible, commands arriving half a second late, and twice the traffic. On the highway, the learned drivers on their own crashed in up to 100% of drives. With the rules on, they crashed in 0% to 5%. One caveat matters: in these tests only the driver's view was blurred. The rules always read clean data, as a separately built safety sensor would provide. A safety sensor that is itself faulty was not tested.</p>
+
+    <h3>Speed of a decision</h3>
+    <p>On one core of a laptop processor, one decision takes 33 microseconds. On the graphics card it takes 0.4 to 0.9 milliseconds, because moving the data to the card and back costs more than the arithmetic. The graphics card only wins when it handles many decisions at once. Every packaged version made exactly the same decisions as the original.</p>
+    <p>The C++ vehicle program drove 20 of 20 drives without a crash, the same result as the original Python version.</p>
+
+    <h3>In a different simulator</h3>
+    <p>The same drivers and the same rules, with no retraining, were run in a second simulator, <strong>MetaDrive</strong>. There the cars are physically simulated and the other traffic behaves differently: it waits parked and starts moving as you approach. On their own, the drivers crashed in 75% (PPO) and 95% (RecurrentPPO) of drives. They kept speeding up towards slower cars, a situation they had never seen. With the rules on, crashes fell to 40% and 30%. Most of the remaining crashes came right after other cars had crashed into each other nearby.</p>
+    <figure>
+      <img src="../docs/media/metadrive_rppo_shield.gif" width="900" height="260" alt="Top-down three-lane road in MetaDrive. Our car turns red when the safety rules take over.">
+      <figcaption>MetaDrive. Our car turns red whenever the safety rules override the driver. Without the rules, this same drive ends in a crash after about 3 seconds.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>What to keep in mind</h2>
+    <ul>
+      <li>3 trained drivers per setting and 20 drives each is a small sample. Small differences may be luck.</li>
+      <li>The drivers practised for a short time, about 6 hours on a laptop for all 18 of them.</li>
+      <li>The rules assume straight lanes. They are weak at intersections and roundabouts.</li>
+      <li>Everything ran in simulation. Nothing here has been tested on a real vehicle.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Terms</h2>
+    <dl>
+      <dt>Reinforcement learning</dt><dd>Learning by trial and error: the program tries actions, gets points, and keeps what earns more points.</dd>
+      <dt>PPO, RecurrentPPO</dt><dd>Two common reinforcement-learning methods. RecurrentPPO adds a short memory (an LSTM) so the driver can use what it saw a moment ago.</dd>
+      <dt>Safety shield</dt><dd>Fixed rules that check and, if needed, replace each decision of the learned driver.</dd>
+      <dt>Time to collision</dt><dd>The distance to the car ahead divided by how fast we are closing in on it.</dd>
+      <dt>Integrated gradients</dt><dd>A way to measure how much each input number pushed the driver towards its decision.</dd>
+      <dt>Seed</dt><dd>The starting value of the randomness. Training again with another seed gives a slightly different driver, which is why results are averaged over several seeds.</dd>
+      <dt>ONNX</dt><dd>A standard file format for trained models that many languages and devices can run.</dd>
+      <dt>TensorRT</dt><dd>NVIDIA's tool for running models faster on its graphics cards, optionally with smaller numbers (FP16, INT8).</dd>
+      <dt>ROS2</dt><dd>A standard framework that lets the programs in a robot or vehicle exchange messages.</dd>
+      <dt>Docker</dt><dd>A way to package a program with everything it needs so it runs the same on any machine.</dd>
+      <dt>highway-env, MetaDrive</dt><dd>The two driving simulators used. The driver practised only in highway-env.</dd>
+      <dt>Active inference</dt><dd>A different way to make decisions: instead of learning from points, the program is given a model of how the world works and picks actions that reduce its uncertainty. It was compared with PPO on a separate small problem; see the <a href="index.html">report</a>.</dd>
+    </dl>
+  </section>
+</main>
+</body>
+</html>

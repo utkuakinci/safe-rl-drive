@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Safe RL Driving</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Single light theme on purpose: the charts and the animations are rendered on this same surface.
+   Layout: one reading column, with wide figures and tables at the same measure. */
+:root {
+  color-scheme: light;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-soft: #52514e;
+  --ink-muted: #706e69;
+  --rule: #e1e0d9;
+  --accent: #2a78d6;
+  --tint: #f1f5fb;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { background: var(--surface); }
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.6;
+}
+main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 48px 20px 72px;
+  display: grid;
+  gap: 40px;
+}
+header, section { display: grid; gap: 14px; }
+h1, h2 { margin: 0; text-wrap: balance; line-height: 1.2; font-weight: 600; }
+h1 { font-size: 34px; letter-spacing: -0.01em; }
+h2 { font-size: 22px; padding-top: 22px; border-top: 1px solid var(--rule); }
+p { margin: 0; max-width: 68ch; }
+.lead { font-size: 19px; color: var(--ink-soft); }
+.plain { padding: 12px 16px; background: var(--tint); border-radius: 4px; max-width: none; }
+.plain a { color: #1c5cab; font-weight: 500; }
+figure { margin: 0; display: grid; gap: 8px; }
+img { display: block; max-width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 4px; }
+figcaption { font-size: 14.5px; color: var(--ink-muted); max-width: 72ch; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+caption { text-align: left; color: var(--ink-muted); font-size: 14.5px; padding-bottom: 8px; }
+th, td { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 500; color: var(--ink-soft); }
+th:first-child, td:first-child { text-align: left; }
+td { font-variant-numeric: tabular-nums; }
+td strong { font-weight: 600; }
+.best { background: var(--tint); }
+.interval { display: block; color: var(--ink-muted); font-size: 13px; }
+.finding { display: grid; gap: 4px; }
+.finding h3 { margin: 0; font-size: 17px; font-weight: 600; }
+.findings { display: grid; gap: 18px; }
+ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 72ch; }
+code { font-family: var(--mono); font-size: 0.9em; }
+pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  background: #f4f3f0;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.5;
+}
+@media (max-width: 480px) {
+  main { padding-top: 32px; gap: 32px; }
+  h1 { font-size: 28px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Safe and Explainable RL Driving, from Training to Real-Time Deployment</h1>
+    <p class="lead">PPO and RecurrentPPO policies learn lane changes, merges and an unsignalised intersection in highway-env. A rule-based safety shield vets every decision and logs why it intervened, and integrated gradients explain what the policy looked at. The same policy is exported to ONNX and TensorRT, served by a C++ ROS2 node, and tested without retraining in a second simulator, MetaDrive.</p>
+    <p class="plain">New to reinforcement learning or driving stacks? <a href="explained.html">Read the project in plain English</a>, with one decision step by step and a glossary.</p>
+  </header>
+
+  <figure>
+    <img src="../docs/media/explain_highway.gif" width="1080" height="486" alt="Animated top-down highway scene. On the right, a bar chart of the five action probabilities and a heat map of integrated-gradients attributions over the 8 by 7 observation. A text line at the top names the chosen action and the vehicles that drove it.">
+    <figcaption>Highway PPO with the shield on. Left: the scene, ego in green. Right, top: the policy's action probabilities, with the executed action in blue and a shield override in red. Right, bottom: integrated-gradients attribution of the chosen action. Top line: the generated rationale, for example "FASTER (p=0.92) | car #1 (21%): 22 m ahead, left, dv=-1.6 m/s". This 40 s episode had 1 shield intervention in 80 decisions.</figcaption>
+  </figure>
+
+  <section>
+    <h2>Results</h2>
+    <div class="table-wrap">
+      <table>
+        <caption>Nominal conditions. 3 training seeds × 20 evaluation episodes each, the same episodes with the shield off and on. Brackets are 95% Student-t intervals across seeds.</caption>
+        <thead>
+          <tr><th scope="col">Scenario, agent</th><th scope="col">Collision, shield off</th><th scope="col">Collision, shield on</th><th scope="col">Success, shield on</th><th scope="col">Speed off → on [m/s]</th><th scope="col">Decisions overridden</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>highway, PPO</td><td>45%<span class="interval">0 to 100</span></td><td class="best"><strong>0%</strong></td><td>100%</td><td>23.2 → 21.5</td><td>15%</td></tr>
+          <tr><td>highway, RecurrentPPO</td><td>87%<span class="interval">61 to 100</span></td><td class="best"><strong>0%</strong></td><td>100%</td><td>26.7 → 22.2</td><td>23%</td></tr>
+          <tr><td>highway, PPO, velocities hidden</td><td>32%<span class="interval">0 to 68</span></td><td class="best"><strong>0%</strong></td><td>100%</td><td>21.7 → 21.1</td><td>10%</td></tr>
+          <tr><td>highway, RecurrentPPO, velocities hidden</td><td>85%<span class="interval">73 to 97</span></td><td class="best"><strong>0%</strong></td><td>100%</td><td>26.2 → 21.8</td><td>21%</td></tr>
+          <tr><td>merge, PPO</td><td>0%</td><td class="best"><strong>0%</strong></td><td>100%</td><td>20.1 → 19.9</td><td>7%</td></tr>
+          <tr><td>merge, RecurrentPPO</td><td>13%<span class="interval">0 to 32</span></td><td class="best"><strong>0%</strong></td><td>100%</td><td>20.9 → 19.6</td><td>5%</td></tr>
+          <tr><td>intersection, PPO</td><td>25%</td><td>23%<span class="interval">4 to 42</span></td><td>43%</td><td>9.0 → 6.2</td><td>29%</td></tr>
+          <tr><td>intersection, RecurrentPPO</td><td>25%</td><td>28%<span class="interval">21 to 36</span></td><td>38%</td><td>9.0 → 6.4</td><td>30%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figure>
+      <img src="figures/shield_effect.png" width="1344" height="896" alt="Horizontal bar chart of collision rates with the shield off and on. On highway and merge every shield-on bar is at 0 percent, against 13 to 87 percent off. On the intersection the shield-on bars stay at 23 and 28 percent.">
+      <figcaption>Collision rate with the shield off (orange) and on (blue). Lines are 95% intervals across the 3 training seeds. Training budget: 200k environment steps (intersection 400k) on a laptop CPU, about 6 h for all 18 runs.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Findings</h2>
+    <div class="findings">
+      <div class="finding">
+        <h3>The shield carries safety on highway and merge</h3>
+        <p>Collisions drop to 0% for all six highway and merge policies, from up to 87% without the shield. The price is speed: about 2 m/s on highway and under 0.5 m/s on merge, with 5 to 23% of decisions overridden.</p>
+      </div>
+      <div class="finding">
+        <h3>RecurrentPPO is under-trained at this budget</h3>
+        <p>On highway it drives faster than PPO (26.7 against 23.2 m/s) and collides in 87% of episodes without the shield. With the shield it also reaches 0%, but only because the shield overrides about 22% of its decisions, against about 15% for PPO. Hiding the velocities did not hurt PPO, so this run does not show the benefit of recurrence that the partially observable variant was designed to expose. An LSTM policy needs more than 200k samples.</p>
+      </div>
+      <div class="finding">
+        <h3>The intersection is a negative result</h3>
+        <p>All six intersection policies learned the same thing: enter at the top target speed and ignore crossing traffic. Outcomes are identical across seeds, algorithms and observation noise, because evaluation episodes share seeds. The shield does not fix it. Slowing down makes the ego miss the 13 s time limit, so success falls from 75% to about 40%, and the remaining side impacts are not anticipated early enough by the crossing-conflict rule. Likely fixes, not run: a larger collision penalty or an arrival-only reward, a yield rule in the shield (stop line and right of way), and longer training.</p>
+      </div>
+      <div class="finding">
+        <h3>The intervals are wide</h3>
+        <p>Three seeds is a small sample. The interval for highway PPO without the shield spans 0 to 100%, and the gap between PPO and PPO with hidden velocities is not significant.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Robustness</h2>
+    <p>Every policy was also evaluated under perturbations it never saw in training, each with the shield off and on: Gaussian sensor noise on the normalised observation, 20% missed detections, a one-step (0.5 s) actuation delay, 1.5× and 2× traffic density, and the scenarios it was not trained on.</p>
+    <figure>
+      <img src="figures/robustness_highway.png" width="1664" height="960" alt="Two panels of horizontal bar charts, PPO and RecurrentPPO, collision rate per perturbation with the shield off and on. Shield-on bars are at 0 to 5 percent for noise, missed detections, delay, density and unseen highway and merge, around 30 percent for the roundabout and around 40 percent for the intersection.">
+      <figcaption>Highway policies, collision rate per condition. The full table for every scenario, including speed and jerk, is in <code>results/&lt;scenario&gt;/summary.md</code>.</figcaption>
+    </figure>
+    <ul>
+      <li>Noise, missed detections and delay degrade the policy itself (PPO: 45% collisions nominal, 87% at the strongest noise). The shield brings every one of these back to 0%.</li>
+      <li>This is partly by construction. The shield reads a separate, ground-truth safety channel, as a separately validated perception path would provide, so the perturbations only reach the policy. A shield fed by the same noisy sensor was not tested.</li>
+      <li>The shield transfers to lane-following scenarios the policy never saw (dense highway: 87% → 5%, merge: 42% → 0% for RecurrentPPO), only partly to the roundabout (48% → 27%), and not to crossing traffic (35% → 40%). Its rules assume straight, lane-aligned geometry.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Real-time deployment</h2>
+    <p>The RecurrentPPO actor (LSTM-128 plus one 128-unit layer, 112k parameters) is exported to ONNX with its LSTM state as explicit inputs and outputs, and the observation contract is written into the ONNX metadata. TensorRT 10.16 builds FP32, FP16 and INT8 engines, with INT8 entropy-calibrated on recorded on-policy observations. Every backend is scored on latency and on accuracy: logit error and action agreement against PyTorch FP32 on 30 recorded episodes, and closed-loop driving over 20 episodes.</p>
+    <figure>
+      <img src="figures/latency.png" width="1344" height="624" alt="Horizontal bar chart of median latency per backend at batch 1. ONNX Runtime on CPU is fastest at 33 microseconds, PyTorch CPU 245, TensorRT INT8 439, FP16 462, FP32 625, PyTorch CUDA FP32 880 and FP16 1083.">
+      <figcaption>Host-to-host latency per decision, batch 1, including the copies to and from the GPU. The full table with throughput, memory and artefact size is in <code>results/benchmark_rppo_highway/benchmark.md</code>.</figcaption>
+    </figure>
+    <ul>
+      <li><strong>ONNX Runtime on one CPU thread is the fastest backend at batch 1</strong>: 33 µs, 7× faster than PyTorch, with an artefact 6× smaller than the checkpoint. For a 2 Hz decision rate on this hardware it is the right target.</li>
+      <li>On the GPU every call pays kernel launch and PCIe copies, about 0.4 to 0.9 ms on this Windows laptop. Within the GPU backends TensorRT FP16 and INT8 are about 2× faster than PyTorch CUDA. The GPU pays off in batches: at batch 32, TensorRT INT8 runs 55k decisions/s against 33k for PyTorch CUDA.</li>
+      <li><strong>No measurable accuracy loss.</strong> Every backend picks the same action as PyTorch FP32 on 100% of the recorded observations (max logit error ≤ 3.5e-3), and closed-loop outcomes are identical. INT8 is barely faster than FP16, which suggests TensorRT kept most of this small network in higher precision. A per-layer dump would confirm it.</li>
+    </ul>
+    <div class="table-wrap">
+      <table>
+        <caption>C++ ROS2 node, closed loop. ROS2 Humble in Docker. The highway-env bridge and the C++ component node (ONNX Runtime C++ API, LSTM state kept in the node, C++ port of the shield) run in lock step. Same RecurrentPPO model, 20 episodes.</caption>
+        <thead><tr><th scope="col">Measurement</th><th scope="col">Value</th></tr></thead>
+        <tbody>
+          <tr><td>gtest, including shield conformance with 2400 Python reference vectors</td><td>8 / 8 passed</td></tr>
+          <tr><td>ONNX Runtime C++ inference, 5000 calls</td><td>p50 13 µs, p99 28 µs</td></tr>
+          <tr><td>Node callback: deserialise, infer, shield, publish</td><td>p50 157 µs, p99 297 µs</td></tr>
+          <tr><td>Round trip over DDS, observation out to command in</td><td>p50 0.76 ms, p99 1.18 ms</td></tr>
+          <tr><td>Closed loop with the C++ shield</td><td class="best"><strong>20 / 20 success, 0 collisions</strong>, 22.6 m/s, 23% overridden</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The C++ pipeline reproduces the Python evaluation of the same model with the shield on (100% success, 22.2 m/s, 22.8% overridden), so the shield port and the recurrent-state handling behave the same outside Python. Every latency is far below the 500 ms decision period.</p>
+  </section>
+
+  <section>
+    <h2>Sim-to-sim transfer: MetaDrive</h2>
+    <p>The same ONNX policies and the same shield, with no retraining, drive in MetaDrive. Several things change. The car is a Bullet rigid body driven by steering and throttle instead of a kinematic model. MetaDrive's own IDM traffic waits parked along the road and starts when the ego approaches. Lanes are 3.5 m wide instead of 4 m. The observation contract is rebuilt from MetaDrive ground truth, and a new heading-tracking lane controller and a PI speed controller execute the meta-actions. Setup: 3-lane straight road, 40 s episodes, traffic cruising at 80 km/h, and the same 20 seeds with the shield off and on.</p>
+    <figure>
+      <img src="../docs/media/metadrive_rppo_shield.gif" width="900" height="260" alt="Animated top-down view of a three-lane road. The ego car turns red while the shield overrides the policy, slowing behind traffic instead of accelerating into it.">
+      <figcaption>RecurrentPPO with the shield on, seed 104. The ego turns red while the shield overrides the policy. Without the shield, the same seed ends in a collision after about 3 s.</figcaption>
+    </figure>
+    <figure>
+      <img src="figures/metadrive.png" width="1568" height="464" alt="Bar chart of MetaDrive collision rates. PPO falls from 75 to 40 percent with the shield, RecurrentPPO from 95 to 30 percent. Hatched parts show collisions after a traffic pile-up: most of the shield-on collisions.">
+      <figcaption>Collision rate in MetaDrive, 20 episodes per bar. The hatched part of each bar is collisions that followed a crash between traffic vehicles within 60 m of the ego.</figcaption>
+    </figure>
+    <ul>
+      <li><strong>The policies do not transfer on their own.</strong> 75% (PPO) and 95% (RecurrentPPO) of episodes end in a collision, mostly within the first 3 to 10 s. In the episodes we inspected, the ego keeps choosing FASTER towards traffic that is slower or still accelerating from standstill, a situation highway-env never showed it.</li>
+      <li><strong>The shield transfers.</strong> With the identical rules and thresholds, collisions fall to 40% and 30%. Most of the remaining ones (35 of 40 points, and 25 of 30) follow a pile-up among MetaDrive traffic vehicles near the ego. A 2 Hz shield with emergency braking cannot always stop for that, and the ego's own braking may have caused some of these pile-ups. The price is speed: about 16 m/s instead of 20 to 26 m/s.</li>
+      <li>Four interface bugs were found and fixed before these numbers were taken: phantom vehicles pooled from earlier episodes, parked traffic that was invisible to the observation, MetaDrive's top-down renderer shrinking a 1.4 km road below 1 px/m, and a lateral controller that slid off the road on back-to-back lane changes. The controller was then tuned without traffic, and 0 of 80 episodes ended off-road.</li>
+      <li>20 episodes per bar, so differences of ±15 points are within noise. MetaDrive is also not bit-exact between runs. CARLA was the original plan, but it needs at least 6 to 8 GB of VRAM and Vulkan, and it does not run under Docker on Windows or WSL2. The test laptop has 4 GB. The CARLA script stays in <code>carla_demo/</code>, unrun.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Active inference against PPO and RecurrentPPO</h2>
+    <p>A separate lane-choice problem: a stalled car sits in an unknown one of 3 lanes, and a detector reports its lane with an accuracy that rises from 50% at 5 steps to 75% at 1 step, so evidence has to be accumulated. The pymdp agent is given the generative model and minimises expected free energy. PPO and RecurrentPPO learn from reward. Test conditions: the nominal detector, and a worse detector that no agent has seen.</p>
+    <div class="table-wrap">
+      <table>
+        <caption>Crash rate over 300 evaluation episodes. Chance is about 33%. RL agents: mean ± std over 3 training seeds.</caption>
+        <thead>
+          <tr><th scope="col">Agent</th><th scope="col">Training steps</th><th scope="col">Nominal detector</th><th scope="col">Worse detector</th><th scope="col">Decision time</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Active inference (pymdp, horizon 2)</td><td>0</td><td class="best"><strong>6.7%</strong></td><td class="best"><strong>12.0%</strong></td><td>8.5 ms</td></tr>
+          <tr><td>PPO</td><td>50k</td><td>8.3 ± 1.5%</td><td>13.9 ± 1.8%</td><td>0.32 ms</td></tr>
+          <tr><td>RecurrentPPO</td><td>50k</td><td>7.0 ± 0.9%</td><td>13.8 ± 2.2%</td><td>0.82 ms</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figure>
+      <img src="active_inference/crash_vs_samples.png" width="1300" height="494" alt="Crash rate against training samples for PPO and RecurrentPPO, with the active-inference agent as a flat reference line at 6.7 and 12.0 percent.">
+      <figcaption>Crash rate against training samples (2k, 10k, 50k). The active-inference agent needs no samples.</figcaption>
+    </figure>
+    <ul>
+      <li>Given a correct generative model, active inference is safer than both RL agents even after 50k samples. The open question is where such a model comes from in real driving.</li>
+      <li>Only RecurrentPPO approaches it. A single detector reading is wrong 25% of the time, and feed-forward PPO cannot accumulate evidence.</li>
+      <li>Under the unseen worse detector, every agent roughly doubles its crash rate. Active inference does not degrade more gracefully. It is also 10 to 25× slower per decision.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>How the results were checked</h2>
+    <ul>
+      <li>Shield off and on are compared on the same evaluation seeds, so on the same traffic situations.</li>
+      <li>Every number is aggregated per training seed first and then across seeds, so one lucky run cannot carry a result.</li>
+      <li>The README tables and the charts on this page are generated from the saved results by <code>scripts/readme_tables.py</code> and <code>scripts/report_figures.py</code>.</li>
+      <li>The C++ shield is pinned to the Python shield by 2400 conformance vectors from real rollouts and synthetic edge cases, checked by pytest and by gtest.</li>
+      <li>ONNX and TensorRT outputs are compared with PyTorch on recorded observations and in closed loop before any latency is reported.</li>
+      <li>An always-FASTER policy collided in 6/6 highway and 6/6 merge episodes without the shield and in 0/6 with it. This sanity check is also a test.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Limits</h2>
+    <ul>
+      <li>3 training seeds and 20 evaluation episodes per cell is a small sample, and the intervals are wide.</li>
+      <li>Training is short: 200k steps (400k for the intersection). RecurrentPPO in particular is under-trained. The W&amp;B sweep configurations exist but were not run.</li>
+      <li>The shield reads ground truth. The robustness results show how much it protects a degraded policy, not how it behaves with a degraded sensor of its own.</li>
+      <li>The shield's corridor geometry is lane-aligned, so it is weak on curved lanes and crossing traffic. A map-aware conflict-zone rule is the next step.</li>
+      <li>W&amp;B tracking is implemented, but these runs used TensorBoard only: Windows Smart App Control on the test laptop blocks one of W&amp;B's compiled dependencies. The logs can be synced to W&amp;B later.</li>
+      <li>Latencies come from a Windows laptop (RTX A2000 Laptop, 4 GB, WDDM driver). An automotive target would give different numbers.</li>
+      <li>The GitHub Actions workflow (lint, tests, smoke training, ONNX check, ROS2 build and closed loop) has not run on GitHub yet. Its Docker and ROS2 steps were reproduced locally.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Reproduce</h2>
+    <pre>docker compose build train
+docker compose run --rm train                 # PPO / RecurrentPPO training
+docker compose run --rm evaluate              # robustness suite × shield off / on
+make deploy RUN=runs/highway/rppo/seed_1      # ONNX → TensorRT → benchmark (CUDA machine)
+docker compose build ros2 &amp;&amp; docker compose run --rm ros2   # C++ node, closed loop
+make metadrive                                # sim-to-sim transfer
+python scripts/readme_tables.py &amp;&amp; python scripts/report_figures.py</pre>
+    <p>Source, configuration and the full write-up are in the <a href="https://github.com/utkuakinci/safe-rl-drive">repository</a>.</p>
+  </section>
+</main>
+</body>
+</html>
